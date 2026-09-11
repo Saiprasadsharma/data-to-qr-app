@@ -1,37 +1,141 @@
 <div class="qr">
-  <h1>Text to QR Code</h1>
+  <h1>QR Code Tools</h1>
 
-  <textarea
-    rows="4"
-    placeholder="Enter or paste text here..."
-    [value]="inputText()"
-    (input)="onInput($event)"
-  ></textarea>
+  <div class="qr__tabs" role="tablist">
+    <button
+      type="button"
+      role="tab"
+      class="qr__tab"
+      [class.qr__tab--active]="activeTab() === 'generate'"
+      [attr.aria-selected]="activeTab() === 'generate'"
+      (click)="setTab('generate')"
+    >
+      Generate QRs
+    </button>
+    <button
+      type="button"
+      role="tab"
+      class="qr__tab"
+      [class.qr__tab--active]="activeTab() === 'scan'"
+      [attr.aria-selected]="activeTab() === 'scan'"
+      (click)="setTab('scan')"
+    >
+      Scan &amp; Combine
+    </button>
+  </div>
 
-  <p class="qr__meta">
-    {{ charCount() }} characters
-    @if (chunkCount() > 0) {
-      &middot; {{ chunkCount() }} QR code{{ chunkCount() === 1 ? '' : 's' }} needed
-    }
-  </p>
+  @if (activeTab() === 'generate') {
+    <section class="qr__panel">
+      <textarea
+        rows="4"
+        placeholder="Enter or paste text here..."
+        [value]="inputText()"
+        (input)="onInput($event)"
+      ></textarea>
 
-  @if (errorMessage()) {
-    <p class="qr__error">{{ errorMessage() }}</p>
+      <p class="qr__meta">
+        {{ charCount() }} characters
+        @if (chunkCount() > 0) {
+          &middot; {{ chunkCount() }} QR code{{ chunkCount() === 1 ? '' : 's' }} needed
+        }
+      </p>
+
+      @if (errorMessage()) {
+        <p class="qr__error">{{ errorMessage() }}</p>
+      }
+
+      <button type="button" (click)="generate()" [disabled]="isGenerating()">
+        {{ isGenerating() ? 'Generating...' : 'Generate QR Codes' }}
+      </button>
+      <button type="button" (click)="reset()">Reset</button>
+
+      @if (qrChunks().length > 0) {
+        <div class="qr__grid">
+          @for (chunk of qrChunks(); track chunk.index) {
+            <figure>
+              <img [src]="chunk.dataUrl" [alt]="'QR code part ' + chunk.index" />
+              <figcaption>Part {{ chunk.index }} &middot; {{ chunk.text.length }} chars</figcaption>
+            </figure>
+          }
+        </div>
+      }
+    </section>
   }
 
-  <button type="button" (click)="generate()" [disabled]="isGenerating()">
-    {{ isGenerating() ? 'Generating...' : 'Generate QR Codes' }}
-  </button>
-  <button type="button" (click)="reset()">Reset</button>
+  @if (activeTab() === 'scan') {
+    <section class="qr__panel">
+      <div class="scanner">
+        <div class="scanner__controls">
+          @if (!isScanning()) {
+            <button type="button" (click)="startScan()" [disabled]="isStartingScan()">
+              {{ isStartingScan() ? 'Starting camera...' : 'Start Scan' }}
+            </button>
+          } @else {
+            <button type="button" class="scanner__stop" (click)="stopScan()">Stop Scan</button>
+          }
+          <button type="button" (click)="clearAll()" [disabled]="scannedCodes().length === 0">
+            Clear All
+          </button>
+        </div>
 
-  @if (qrChunks().length > 0) {
-    <div class="qr__grid">
-      @for (chunk of qrChunks(); track chunk.index) {
-        <figure>
-          <img [src]="chunk.dataUrl" [alt]="'QR code part ' + chunk.index" />
-          <figcaption>Part {{ chunk.index }} &middot; {{ chunk.text.length }} chars</figcaption>
-        </figure>
-      }
-    </div>
+        @if (scanError()) {
+          <p class="qr__error">{{ scanError() }}</p>
+        }
+
+        <div
+          class="scanner__viewport"
+          [class.scanner__viewport--active]="isScanning()"
+          [hidden]="!isScanning() && !isStartingScan()"
+        >
+          <div id="qr-scanner-viewport"></div>
+        </div>
+
+        @if (duplicateFlash()) {
+          <p class="scanner__flash scanner__flash--duplicate">Duplicate QR code &mdash; already scanned</p>
+        }
+
+        <div class="scanner__results">
+          <div class="scanner__results-header">
+            <h2>Scanned Parts ({{ scannedCodes().length }})</h2>
+            @if (combinedText()) {
+              <span class="qr__meta">{{ combinedCharCount() }} total characters</span>
+            }
+          </div>
+
+          @if (scannedCodes().length === 0) {
+            <p class="scanner__empty">No QR codes scanned yet. Start the camera and scan the parts in order.</p>
+          } @else {
+            <ol class="scanner__list">
+              @for (code of scannedCodes(); track code.id; let i = $index) {
+                <li class="scanner__item" [class.scanner__item--flash]="justScannedId() === code.id">
+                  <span class="scanner__order">Part {{ code.order }}</span>
+                  <span class="scanner__preview">{{ code.text.length > 60 ? (code.text.slice(0, 60) + '…') : code.text }}</span>
+                  <span class="scanner__chars">{{ code.text.length }} chars</span>
+                  <span class="scanner__actions">
+                    <button type="button" title="Move up" (click)="moveUp(i)" [disabled]="i === 0">&uarr;</button>
+                    <button type="button" title="Move down" (click)="moveDown(i)" [disabled]="i === scannedCodes().length - 1">&darr;</button>
+                    <button type="button" class="scanner__remove" title="Remove" (click)="removeScan(code.id)">&times;</button>
+                  </span>
+                </li>
+              }
+            </ol>
+          }
+        </div>
+
+        @if (combinedText()) {
+          <div class="scanner__combined">
+            <div class="scanner__results-header">
+              <h2>Combined Text</h2>
+              <span class="qr__meta">{{ combinedCharCount() }} characters</span>
+            </div>
+            <textarea rows="6" readonly [value]="combinedText()"></textarea>
+            <div class="scanner__combined-actions">
+              <button type="button" (click)="copyText()">Copy Text</button>
+              <button type="button" (click)="downloadText()">Download Text</button>
+            </div>
+          </div>
+        }
+      </div>
+    </section>
   }
 </div>
