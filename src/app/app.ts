@@ -1,11 +1,10 @@
-import { Component, signal } from '@angular/core';
+import { Component } from '@angular/core';
+import { DataToQr } from './data-to-qr/data-to-qr';
 
 @Component({
   selector: 'app-root',
-  imports: [],
+  imports: [DataToQr],
   templateUrl: './app.html',
   styleUrl: './app.scss'
 })
-export class App {
-  protected readonly title = signal('data-to-qr-app');
-}
+export class App {}

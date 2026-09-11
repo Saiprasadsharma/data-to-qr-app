@@ -1,0 +1,37 @@
+<div class="qr">
+  <h1>Text to QR Code</h1>
+
+  <textarea
+    rows="4"
+    placeholder="Enter or paste text here..."
+    [value]="inputText()"
+    (input)="onInput($event)"
+  ></textarea>
+
+  <p class="qr__meta">
+    {{ charCount() }} characters
+    @if (chunkCount() > 0) {
+      &middot; {{ chunkCount() }} QR code{{ chunkCount() === 1 ? '' : 's' }} needed
+    }
+  </p>
+
+  @if (errorMessage()) {
+    <p class="qr__error">{{ errorMessage() }}</p>
+  }
+
+  <button type="button" (click)="generate()" [disabled]="isGenerating()">
+    {{ isGenerating() ? 'Generating...' : 'Generate QR Codes' }}
+  </button>
+  <button type="button" (click)="reset()">Reset</button>
+
+  @if (qrChunks().length > 0) {
+    <div class="qr__grid">
+      @for (chunk of qrChunks(); track chunk.index) {
+        <figure>
+          <img [src]="chunk.dataUrl" [alt]="'QR code part ' + chunk.index" />
+          <figcaption>Part {{ chunk.index }} &middot; {{ chunk.text.length }} chars</figcaption>
+        </figure>
+      }
+    </div>
+  }
+</div>
