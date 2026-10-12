@@ -94,6 +94,10 @@
           <p class="scanner__flash scanner__flash--duplicate">Duplicate QR code &mdash; already scanned</p>
         }
 
+        @if (newBatchFlash()) {
+          <p class="scanner__flash scanner__flash--newbatch">New batch detected &mdash; previous scan cleared</p>
+        }
+
         <div class="scanner__results">
           <div class="scanner__results-header">
             <h2>Scanned Parts ({{ scannedCodes().length }})</h2>
@@ -103,22 +107,29 @@
           </div>
 
           @if (scannedCodes().length === 0) {
-            <p class="scanner__empty">No QR codes scanned yet. Start the camera and scan the parts in order.</p>
+            <p class="scanner__empty">No QR codes scanned yet. Start the camera and scan the parts in any order.</p>
           } @else {
             <ol class="scanner__list">
-              @for (code of scannedCodes(); track code.id; let i = $index) {
+              @for (code of scannedCodes(); track code.id) {
                 <li class="scanner__item" [class.scanner__item--flash]="justScannedId() === code.id">
-                  <span class="scanner__order">Part {{ code.order }}</span>
-                  <span class="scanner__preview">{{ code.text.length > 60 ? (code.text.slice(0, 60) + '…') : code.text }}</span>
-                  <span class="scanner__chars">{{ code.text.length }} chars</span>
+                  <span class="scanner__order">Part {{ code.chunkIndex }} of {{ code.chunkTotal }}</span>
+                  <span class="scanner__preview">{{ code.payload.length > 60 ? (code.payload.slice(0, 60) + '…') : code.payload }}</span>
+                  <span class="scanner__chars">{{ code.payload.length }} chars</span>
                   <span class="scanner__actions">
-                    <button type="button" title="Move up" (click)="moveUp(i)" [disabled]="i === 0">&uarr;</button>
-                    <button type="button" title="Move down" (click)="moveDown(i)" [disabled]="i === scannedCodes().length - 1">&darr;</button>
                     <button type="button" class="scanner__remove" title="Remove" (click)="removeScan(code.id)">&times;</button>
                   </span>
                 </li>
               }
             </ol>
+          }
+
+          @if (scannedCodes().length > 0 && !scanProgress().complete) {
+            <p class="scanner__progress">
+              Scanned {{ scanProgress().scannedCount }} of {{ scanProgress().total }}
+              @if (scanProgress().missingIndices.length > 0) {
+                &mdash; missing part{{ scanProgress().missingIndices.length === 1 ? '' : 's' }}: {{ scanProgress().missingIndices.join(', ') }}
+              }
+            </p>
           }
         </div>
 

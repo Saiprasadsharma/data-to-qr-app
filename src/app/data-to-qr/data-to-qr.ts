@@ -11,8 +11,10 @@ interface QrChunk {
 
 interface ScannedCode {
   id: number;
-  order: number;
-  text: string;
+  batchId: string;
+  chunkIndex: number;
+  chunkTotal: number;
+  payload: string;
   scannedAt: Date;
 }
 
@@ -22,6 +24,40 @@ type Tab = 'generate' | 'scan';
 // reliably with a webcam (dense high-version codes from larger chunks were
 // flaky to decode, especially off a phone screen).
 const CHUNK_SIZE = 300;
+
+// Each QR encodes a fixed-width header (magic + batch id + index + total) ahead of
+// the raw chunk text, so the scanner can reconstruct the original order and batch
+// membership regardless of the order codes are physically scanned in.
+const QR_MAGIC = 'QRB1';
+const QR_HEADER_LENGTH = 16; // 4 magic + 6 batchId + 3 index + 3 total
+
+function makeBatchId(): string {
+  return Math.random().toString(36).slice(2, 8).padEnd(6, '0');
+}
+
+function encodeChunkHeader(batchId: string, index: number, total: number): string {
+  return `${QR_MAGIC}${batchId}${String(index).padStart(3, '0')}${String(total).padStart(3, '0')}`;
+}
+
+interface ParsedChunk {
+  batchId: string;
+  index: number;
+  total: number;
+  payload: string;
+}
+
+function parseChunkHeader(decodedText: string): ParsedChunk | null {
+  if (decodedText.length < QR_HEADER_LENGTH || decodedText.slice(0, 4) !== QR_MAGIC) {
+    return null;
+  }
+  const batchId = decodedText.slice(4, 10);
+  const index = Number(decodedText.slice(10, 13));
+  const total = Number(decodedText.slice(13, 16));
+  if (!Number.isInteger(index) || !Number.isInteger(total) || index < 1 || total < 1 || index > total) {
+    return null;
+  }
+  return { batchId, index, total, payload: decodedText.slice(16) };
+}
 
 @Component({
   selector: 'app-data-to-qr',
@@ -55,12 +91,39 @@ export class DataToQr implements OnDestroy {
   protected readonly scanError = signal('');
   protected readonly justScannedId = signal<number | null>(null);
   protected readonly duplicateFlash = signal(false);
+  protected readonly newBatchFlash = signal(false);
 
-  protected readonly combinedText = computed(() =>
-    this.scannedCodes()
-      .map((c) => c.text)
-      .join(''),
-  );
+  protected readonly scanProgress = computed(() => {
+    const codes = this.scannedCodes();
+    if (codes.length === 0) {
+      return { scannedCount: 0, total: 0, missingIndices: [] as number[], complete: false };
+    }
+    const total = codes[0].chunkTotal;
+    const present = new Set(codes.map((c) => c.chunkIndex));
+    const missingIndices: number[] = [];
+    for (let i = 1; i <= total; i++) {
+      if (!present.has(i)) {
+        missingIndices.push(i);
+      }
+    }
+    return {
+      scannedCount: codes.length,
+      total,
+      missingIndices,
+      complete: missingIndices.length === 0,
+    };
+  });
+
+  protected readonly combinedText = computed(() => {
+    const progress = this.scanProgress();
+    if (!progress.complete) {
+      return '';
+    }
+    return [...this.scannedCodes()]
+      .sort((a, b) => a.chunkIndex - b.chunkIndex)
+      .map((c) => c.payload)
+      .join('');
+  });
   protected readonly combinedCharCount = computed(() => this.combinedText().length);
 
   ngOnDestroy(): void {
@@ -98,13 +161,19 @@ export class DataToQr implements OnDestroy {
 
     try {
       const chunks = text.match(new RegExp(`.{1,${CHUNK_SIZE}}`, 'gs')) ?? [];
+      const batchId = makeBatchId();
+      const total = chunks.length;
       this.qrChunks.set(
         await Promise.all(
-          chunks.map(async (chunk, i): Promise<QrChunk> => ({
-            index: i + 1,
-            text: chunk,
-            dataUrl: await QRCode.toDataURL(chunk, { errorCorrectionLevel: 'M', margin: 1, width: 256 }),
-          })),
+          chunks.map(async (chunk, i): Promise<QrChunk> => {
+            const index = i + 1;
+            const encoded = encodeChunkHeader(batchId, index, total) + chunk;
+            return {
+              index,
+              text: chunk,
+              dataUrl: await QRCode.toDataURL(encoded, { errorCorrectionLevel: 'M', margin: 1, width: 256 }),
+            };
+          }),
         ),
       );
     } catch {
@@ -197,21 +266,38 @@ export class DataToQr implements OnDestroy {
   }
 
   private onScanSuccess(decodedText: string): void {
-    const isDuplicate = this.scannedCodes().some((c) => c.text === decodedText);
+    const parsed = parseChunkHeader(decodedText);
 
+    if (!parsed) {
+      this.scanError.set('Scanned code is not a recognized QR-batch part. Ignored.');
+      return;
+    }
+
+    let codes = this.scannedCodes();
+    const currentBatchId = codes[0]?.batchId;
+
+    if (currentBatchId && currentBatchId !== parsed.batchId) {
+      codes = [];
+      this.scannedCodes.set(codes);
+      this.flashNewBatch();
+    }
+
+    const isDuplicate = codes.some((c) => c.batchId === parsed.batchId && c.chunkIndex === parsed.index);
     if (isDuplicate) {
       this.flashDuplicate();
       return;
     }
 
-    const codes = this.scannedCodes();
     const entry: ScannedCode = {
       id: this.nextScanId++,
-      order: codes.length + 1,
-      text: decodedText,
+      batchId: parsed.batchId,
+      chunkIndex: parsed.index,
+      chunkTotal: parsed.total,
+      payload: parsed.payload,
       scannedAt: new Date(),
     };
     this.scannedCodes.set([...codes, entry]);
+    this.scanError.set('');
     this.flashSuccess(entry.id);
   }
 
@@ -231,6 +317,11 @@ export class DataToQr implements OnDestroy {
   private flashDuplicate(): void {
     this.duplicateFlash.set(true);
     setTimeout(() => this.duplicateFlash.set(false), 900);
+  }
+
+  private flashNewBatch(): void {
+    this.newBatchFlash.set(true);
+    setTimeout(() => this.newBatchFlash.set(false), 1500);
   }
 
   private beep(): void {
@@ -272,32 +363,7 @@ export class DataToQr implements OnDestroy {
   }
 
   protected removeScan(id: number): void {
-    this.scannedCodes.set(
-      this.scannedCodes()
-        .filter((c) => c.id !== id)
-        .map((c, i) => ({ ...c, order: i + 1 })),
-    );
-  }
-
-  protected moveUp(index: number): void {
-    if (index <= 0) {
-      return;
-    }
-    this.reorder(index, index - 1);
-  }
-
-  protected moveDown(index: number): void {
-    if (index >= this.scannedCodes().length - 1) {
-      return;
-    }
-    this.reorder(index, index + 1);
-  }
-
-  private reorder(from: number, to: number): void {
-    const codes = [...this.scannedCodes()];
-    const [moved] = codes.splice(from, 1);
-    codes.splice(to, 0, moved);
-    this.scannedCodes.set(codes.map((c, i) => ({ ...c, order: i + 1 })));
+    this.scannedCodes.set(this.scannedCodes().filter((c) => c.id !== id));
   }
 
   protected clearAll(): void {
