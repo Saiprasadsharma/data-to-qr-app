@@ -19,6 +19,7 @@ interface ScannedCode {
 }
 
 type Tab = 'generate' | 'scan';
+type DisplayMode = 'all' | 'loop';
 
 // Kept small enough that each QR code's modules stay large enough to scan
 // reliably with a webcam (dense high-version codes from larger chunks were
@@ -78,6 +79,16 @@ export class DataToQr implements OnDestroy {
   protected readonly charCount = computed(() => this.inputText().length);
   protected readonly chunkCount = computed(() => Math.ceil(this.charCount() / CHUNK_SIZE));
 
+  // ---- Auto-rotate display state ----
+  protected readonly displayMode = signal<DisplayMode>('all');
+  protected readonly rotationIntervalSeconds = signal(5);
+  protected readonly rotationIndex = signal(0);
+  protected readonly rotationSecondsLeft = signal(5);
+  protected readonly rotationCycle = signal(1);
+  private rotationTimerId: ReturnType<typeof setInterval> | null = null;
+
+  protected readonly activeRotationChunk = computed(() => this.qrChunks()[this.rotationIndex()] ?? null);
+
   // ---- Tab state ----
   protected readonly activeTab = signal<Tab>('generate');
 
@@ -128,6 +139,7 @@ export class DataToQr implements OnDestroy {
 
   ngOnDestroy(): void {
     void this.stopScan();
+    this.clearRotationTimer();
   }
 
   // ---- Tab switching ----
@@ -138,7 +150,59 @@ export class DataToQr implements OnDestroy {
     if (this.activeTab() === 'scan' && tab !== 'scan') {
       void this.stopScan();
     }
+    if (this.activeTab() === 'generate' && tab !== 'generate' && this.displayMode() === 'loop') {
+      this.clearRotationTimer();
+      this.displayMode.set('all');
+    }
     this.activeTab.set(tab);
+  }
+
+  // ---- Auto-rotate display methods ----
+  protected setDisplayMode(mode: DisplayMode): void {
+    if (this.displayMode() === mode) {
+      return;
+    }
+    if (mode === 'loop') {
+      this.rotationIndex.set(0);
+      this.rotationCycle.set(1);
+      this.rotationSecondsLeft.set(this.rotationIntervalSeconds());
+      this.clearRotationTimer();
+      this.rotationTimerId = setInterval(() => this.tickRotation(), 1000);
+    } else {
+      this.clearRotationTimer();
+    }
+    this.displayMode.set(mode);
+  }
+
+  private tickRotation(): void {
+    const secondsLeft = this.rotationSecondsLeft() - 1;
+    if (secondsLeft > 0) {
+      this.rotationSecondsLeft.set(secondsLeft);
+      return;
+    }
+    const total = this.qrChunks().length;
+    const next = (this.rotationIndex() + 1) % total;
+    if (next === 0) {
+      this.rotationCycle.set(this.rotationCycle() + 1);
+    }
+    this.rotationIndex.set(next);
+    this.rotationSecondsLeft.set(this.rotationIntervalSeconds());
+  }
+
+  private clearRotationTimer(): void {
+    if (this.rotationTimerId !== null) {
+      clearInterval(this.rotationTimerId);
+      this.rotationTimerId = null;
+    }
+  }
+
+  protected onIntervalInput(event: Event): void {
+    const target = event.target as HTMLInputElement;
+    const value = Math.min(15, Math.max(2, Number(target.value) || 5));
+    this.rotationIntervalSeconds.set(value);
+    if (this.displayMode() === 'loop') {
+      this.rotationSecondsLeft.set(value);
+    }
   }
 
   // ---- Generator methods (unchanged) ----
@@ -150,6 +214,8 @@ export class DataToQr implements OnDestroy {
   protected async generate(): Promise<void> {
     const text = this.inputText();
     this.errorMessage.set('');
+    this.clearRotationTimer();
+    this.displayMode.set('all');
 
     if (!text.trim()) {
       this.errorMessage.set('Please enter some text to generate QR codes.');
@@ -188,6 +254,8 @@ export class DataToQr implements OnDestroy {
     this.inputText.set('');
     this.qrChunks.set([]);
     this.errorMessage.set('');
+    this.clearRotationTimer();
+    this.displayMode.set('all');
   }
 
   // ---- Scanner methods ----

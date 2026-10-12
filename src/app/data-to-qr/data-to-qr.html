@@ -50,14 +50,44 @@
       <button type="button" (click)="reset()">Reset</button>
 
       @if (qrChunks().length > 0) {
-        <div class="qr__grid">
-          @for (chunk of qrChunks(); track chunk.index) {
-            <figure>
-              <img [src]="chunk.dataUrl" [alt]="'QR code part ' + chunk.index" />
-              <figcaption>Part {{ chunk.index }} &middot; {{ chunk.text.length }} chars</figcaption>
+        @if (qrChunks().length > 1) {
+          <div class="qr__mode-toggle">
+            <button type="button" class="qr__mode-btn" [class.qr__mode-btn--active]="displayMode() === 'all'" (click)="setDisplayMode('all')">
+              Show All
+            </button>
+            <button type="button" class="qr__mode-btn" [class.qr__mode-btn--active]="displayMode() === 'loop'" (click)="setDisplayMode('loop')">
+              Auto Rotate
+            </button>
+            @if (displayMode() === 'loop') {
+              <label class="qr__interval">
+                Seconds per code:
+                <input type="number" min="2" max="15" [value]="rotationIntervalSeconds()" (input)="onIntervalInput($event)" />
+              </label>
+            }
+          </div>
+        }
+
+        @if (displayMode() === 'loop' && activeRotationChunk()) {
+          <div class="qr__rotate-view">
+            <p class="qr__meta">
+              Cycle {{ rotationCycle() }} &middot; Part {{ activeRotationChunk()!.index }} of {{ qrChunks().length }}
+              &middot; next in {{ rotationSecondsLeft() }}s
+            </p>
+            <figure class="qr__rotate-figure">
+              <img [src]="activeRotationChunk()!.dataUrl" [alt]="'QR code part ' + activeRotationChunk()!.index" />
+              <figcaption>{{ activeRotationChunk()!.text.length }} chars</figcaption>
             </figure>
-          }
-        </div>
+          </div>
+        } @else {
+          <div class="qr__grid">
+            @for (chunk of qrChunks(); track chunk.index) {
+              <figure>
+                <img [src]="chunk.dataUrl" [alt]="'QR code part ' + chunk.index" />
+                <figcaption>Part {{ chunk.index }} &middot; {{ chunk.text.length }} chars</figcaption>
+              </figure>
+            }
+          </div>
+        }
       }
     </section>
   }
