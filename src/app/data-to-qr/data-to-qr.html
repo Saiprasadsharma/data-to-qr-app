@@ -128,6 +128,12 @@
           <p class="scanner__flash scanner__flash--newbatch">New batch detected &mdash; previous scan cleared</p>
         }
 
+        @if (scanProgress().complete) {
+          <p class="scanner__flash scanner__flash--complete">
+            &#10003; All {{ scanProgress().total }} parts captured &mdash; camera stopped.
+          </p>
+        }
+
         <div class="scanner__results">
           <div class="scanner__results-header">
             <h2>Scanned Parts ({{ scannedCodes().length }})</h2>

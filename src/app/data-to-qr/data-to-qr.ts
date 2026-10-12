@@ -367,6 +367,10 @@ export class DataToQr implements OnDestroy {
     this.scannedCodes.set([...codes, entry]);
     this.scanError.set('');
     this.flashSuccess(entry.id);
+
+    if (this.scanProgress().complete) {
+      void this.stopScan();
+    }
   }
 
   private flashSuccess(id: number): void {

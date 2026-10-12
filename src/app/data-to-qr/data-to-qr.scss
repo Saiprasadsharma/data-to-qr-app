@@ -224,6 +224,12 @@
       color: #b54708;
       border: 1px solid #fedf89;
     }
+
+    &--complete {
+      background: #ecfdf3;
+      color: #067647;
+      border: 1px solid #6ce9a6;
+    }
   }
 
   &__results {
